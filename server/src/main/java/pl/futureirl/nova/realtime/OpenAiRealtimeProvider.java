@@ -81,6 +81,10 @@ public class OpenAiRealtimeProvider implements RealtimeProvider {
         session.put("model", cfg.model());
         session.put("instructions", spec.instructions());
         session.put("output_modalities", List.of("audio"));
+        if (spec.tools() != null && !spec.tools().isEmpty()) {
+            session.put("tools", spec.tools());
+            session.put("tool_choice", "auto");
+        }
         session.put("audio", Map.of(
                 "input", Map.of(
                         "transcription", Map.of("model", cfg.transcriptionModel(), "language", "pl"),

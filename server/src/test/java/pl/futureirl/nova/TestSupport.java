@@ -35,6 +35,17 @@ public final class TestSupport {
         };
     }
 
+    /** A clock tests can move forward (approval expiry). */
+    public static class MutableClock extends java.time.Clock {
+        private volatile Instant now = Instant.now();
+
+        public void advance(java.time.Duration d) { now = now.plus(d); }
+        public void reset() { now = Instant.now(); }
+        @Override public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+        @Override public java.time.Clock withZone(java.time.ZoneId zone) { return java.time.Clock.fixed(now, zone); }
+        @Override public Instant instant() { return now; }
+    }
+
     /** Records the last spec and never calls the network. */
     public static class FakeProvider implements RealtimeProvider {
         public volatile SessionSpec lastSpec;
@@ -59,6 +70,12 @@ public final class TestSupport {
                 flyway.clean();
                 flyway.migrate();
             };
+        }
+
+        @Bean
+        @Primary
+        MutableClock testClock() {
+            return new MutableClock();
         }
 
         @Bean

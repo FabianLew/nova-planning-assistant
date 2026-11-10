@@ -16,7 +16,14 @@ export type Effect =
   | { kind: 'caption'; text: string }
   | { kind: 'message'; role: 'user' | 'assistant'; content: string; interrupted: boolean; providerItemId: string }
   | { kind: 'event'; type: string; payload: Record<string, unknown> }
-  | { kind: 'metric'; type: 'latency.reply' | 'latency.interrupt'; payload: Record<string, number> };
+  | { kind: 'metric'; type: 'latency.reply' | 'latency.interrupt'; payload: Record<string, number> }
+  | { kind: 'toolCalls'; calls: ToolCall[] };
+
+export interface ToolCall {
+  callId: string;
+  name: string;
+  arguments: string;
+}
 
 // Loose shape of provider events; we read only what we need.
 export interface ProviderEvent {
@@ -133,6 +140,11 @@ export class TurnTracker {
           if (!text) continue;
           out.push({ kind: 'message', role: 'assistant', content: text, interrupted, providerItemId: item.id });
         }
+        // Function calls run only from a completed response: a cancelled one may carry half-written arguments.
+        const calls: ToolCall[] = (r.output ?? [])
+          .filter((item: any) => item.type === 'function_call')
+          .map((item: any) => ({ callId: item.call_id, name: item.name, arguments: item.arguments ?? '{}' }));
+        if (calls.length && r.status === 'completed') out.push({ kind: 'toolCalls', calls });
         if (r.status === 'failed') {
           out.push({ kind: 'event', type: 'response.failed', payload: { details: r.status_details ?? null } });
         }

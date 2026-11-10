@@ -123,3 +123,15 @@ textarea { min-height: 220px; resize: vertical; }
 .field span { font-size: 13px; color: var(--muted); }
 .error { color: #ffb3bb; font-size: 14px; }
 .hint { color: var(--muted); font-size: 13px; }
+
+.approval { border-color: var(--cyan); background: linear-gradient(180deg, rgba(47,211,224,0.08), var(--surface)); }
+.list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.chip { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.chip-done { color: var(--ok); border-color: var(--ok); }
+.chip-refused, .chip-skipped { color: var(--warn); border-color: var(--warn); }
+.chip-proposed { color: var(--cyan); border-color: var(--cyan); }
+.tabs { display: flex; gap: 8px; margin: 10px 0; overflow-x: auto; }
+.tabs button { min-height: 36px; border-radius: 999px; padding: 0 14px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; }
+.tabs button[aria-pressed='true'] { border-color: var(--cyan); color: var(--cyan); }
+.btn-sm { min-height: 40px; font-size: 14px; padding: 0 12px; }
+.section-title { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 18px 0 4px; }

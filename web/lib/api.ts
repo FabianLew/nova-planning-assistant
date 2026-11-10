@@ -83,6 +83,59 @@ export interface Profile {
 export interface Stats { count: number; p50?: number; p95?: number; max?: number; targetP95?: number; meetsTarget?: boolean }
 export interface LatencyReport { reply: Stats; replyFromSpeechEnd: Stats; interrupt: Stats }
 
+export interface Task {
+  id: string;
+  planId: string;
+  proposalId: string | null;
+  title: string;
+  startAt: string | null;
+  durationMin: number;
+  costGrosze: number;
+  reason: string | null;
+  status: 'proposed' | 'planned' | 'done' | 'skipped' | 'refused' | 'cancelled';
+  refusalReason: string | null;
+  source: 'user' | 'assistant';
+}
+
+export interface Approval {
+  id: string;
+  kind: 'plan_accept' | 'plan_change';
+  planId: string;
+  planVersion: number;
+  args: Record<string, any>;
+  summary: string;
+  conflict: string | null;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface BusyBlock { id: string; startsAt: string; endsAt: string; label: string }
+
+export interface DayView {
+  date: string;
+  timeZone: string;
+  plan: { id: string; date: string; version: number; status: 'draft' | 'approved' } | null;
+  tasks: Task[];
+  busy: BusyBlock[];
+  approvals: Approval[];
+}
+
+export interface Memory {
+  id: string;
+  kind: 'fact' | 'inference' | 'episode';
+  content: string;
+  status: 'confirmed' | 'pending' | 'rejected';
+  importance: number;
+  sourceSessionId: string | null;
+  sourceNote: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ToolOutcome { callId: string; name: string; status: string; output: Record<string, unknown>; replayed: boolean }
+
 export const Api = {
   me: () => api<Me>('/api/auth/me'),
   login: (username: string, password: string) => api<Me>('/api/auth/login', { method: 'POST', body: { username, password } }),
@@ -99,4 +152,30 @@ export const Api = {
   event: (id: string, type: string, payload: Record<string, unknown>) =>
     api(`/api/sessions/${id}/events`, { method: 'POST', body: { type, payload } }),
   metrics: (id: string) => api<LatencyReport>(`/api/sessions/${id}/metrics`),
+  instructions: (id: string) => api<{ instructions: string }>(`/api/sessions/${id}/instructions`),
+  toolCall: (id: string, callId: string, name: string, args: string) =>
+    api<ToolOutcome>(`/api/sessions/${id}/tool-calls`, { method: 'POST', body: { callId, name, arguments: args } }),
+
+  today: () => api<DayView>('/api/days/today'),
+  day: (date: string) => api<DayView>(`/api/days/${date}`),
+  addTask: (date: string, t: { title: string; startTime?: string; durationMin?: number; key: string }) =>
+    api<Task>(`/api/days/${date}/tasks`, { method: 'POST', body: t }),
+  editTask: (id: string, t: { title?: string; startTime?: string; durationMin?: number; expectedPlanVersion: number }) =>
+    api<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: t }),
+  taskStatus: (id: string, status: string, reason?: string) =>
+    api<Task>(`/api/tasks/${id}/status`, { method: 'POST', body: { status, reason } }),
+  addBusy: (date: string, b: { startTime: string; endTime: string; label: string }) =>
+    api<BusyBlock>(`/api/days/${date}/busy`, { method: 'POST', body: b }),
+  deleteBusy: (id: string) => api<void>(`/api/busy/${id}`, { method: 'DELETE' }),
+  approvals: () => api<Approval[]>('/api/approvals'),
+  decide: (id: string, decision: 'approve' | 'reject', key: string) =>
+    api<{ outcome: string; approval: Approval }>(`/api/approvals/${id}/decision`, { method: 'POST', body: { decision, key } }),
+
+  memories: (status?: string) => api<Memory[]>(`/api/memories${status ? `?status=${status}` : ''}`),
+  addMemory: (content: string) => api<Memory>('/api/memories', { method: 'POST', body: { content } }),
+  editMemory: (id: string, content: string, expectedVersion: number) =>
+    api<Memory>(`/api/memories/${id}`, { method: 'PUT', body: { content, expectedVersion } }),
+  confirmMemory: (id: string) => api<Memory>(`/api/memories/${id}/confirm`, { method: 'POST' }),
+  rejectMemory: (id: string) => api<Memory>(`/api/memories/${id}/reject`, { method: 'POST' }),
+  deleteMemory: (id: string) => api<void>(`/api/memories/${id}`, { method: 'DELETE' }),
 };

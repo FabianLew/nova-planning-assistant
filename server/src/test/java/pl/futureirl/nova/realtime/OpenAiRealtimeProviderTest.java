@@ -26,7 +26,7 @@ class OpenAiRealtimeProviderTest {
     }
 
     static final RealtimeProvider.SessionSpec SPEC =
-            new RealtimeProvider.SessionSpec("Bądź NOVĄ", "marin", "server_vad", 650, "auto", 120);
+            new RealtimeProvider.SessionSpec("Bądź NOVĄ", "marin", "server_vad", 650, "auto", 120, pl.futureirl.nova.tools.ToolDefinitions.ALL);
 
     @Test
     void mintsClientSecretWithServerKeyAndPolishSessionConfig() {
@@ -42,6 +42,8 @@ class OpenAiRealtimeProviderTest {
                 .andExpect(jsonPath("$.session.audio.input.turn_detection.interrupt_response").value(true))
                 .andExpect(jsonPath("$.session.audio.output.voice").value("marin"))
                 .andExpect(jsonPath("$.expires_after.seconds").value(120))
+                .andExpect(jsonPath("$.session.tools[0].type").value("function"))
+                .andExpect(jsonPath("$.session.tool_choice").value("auto"))
                 .andRespond(withSuccess("{\"value\":\"ek_abc\",\"expires_at\":1900000000,\"session\":{}}", MediaType.APPLICATION_JSON));
 
         var secret = new OpenAiRealtimeProvider(props("sk-secret"), builder).createClientSecret(SPEC);
@@ -55,7 +57,7 @@ class OpenAiRealtimeProviderTest {
     @Test
     void semanticVadSendsEagernessInsteadOfSilence() {
         var provider = new OpenAiRealtimeProvider(props("k"), RestClient.builder());
-        var cfg = provider.sessionConfig(new RealtimeProvider.SessionSpec("x", "marin", "semantic_vad", 650, "low", 60));
+        var cfg = provider.sessionConfig(new RealtimeProvider.SessionSpec("x", "marin", "semantic_vad", 650, "low", 60, java.util.List.of()));
         assertThat(cfg.toString()).contains("eagerness=low").doesNotContain("silence_duration_ms");
     }
 

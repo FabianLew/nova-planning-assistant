@@ -1,5 +1,6 @@
 package pl.futureirl.nova.security;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,7 @@ public class SecurityConfig {
     SecurityFilterChain filterChain(HttpSecurity http, NovaProperties props, SecurityContextRepository contextRepository) throws Exception {
         http
             .authorizeHttpRequests(a -> a
+                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                 .requestMatchers("/api/auth/login", "/api/auth/csrf", "/actuator/health").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll())
