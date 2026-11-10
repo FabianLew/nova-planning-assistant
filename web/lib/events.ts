@@ -19,6 +19,7 @@ let starting: Promise<void> | null = null;
 const TYPES = [
   'approval.requested', 'approval.decided', 'plan.updated', 'task.created', 'task.status', 'busy.changed',
   'memory.changed', 'memory.deleted', 'tool.executed', 'experiment.changed', 'budget.changed', 'review.saved',
+  'take.changed',
 ];
 
 async function open() {

@@ -1,12 +1,14 @@
 'use client';
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppShell } from '@/components/AppShell';
 import { ApprovalCard, decisionNote } from '@/components/ApprovalCard';
 import { Orb } from '@/components/Orb';
 import { Api } from '@/lib/api';
 import { useLive } from '@/lib/hooks';
-import type { StartedSession } from '@/lib/api';
-import { VoiceSession, type TranscriptEntry } from '@/lib/realtime';
+import type { StartedSession, Take, TakeEvent } from '@/lib/api';
+import { VoiceSession, type RecordEntry, type TranscriptEntry } from '@/lib/realtime';
+import { offsetLabel, TakeRecorder } from '@/lib/takes';
 import { percentile } from '@/lib/stats';
 import type { VoiceState } from '@/lib/turns';
 
@@ -24,6 +26,9 @@ export default function RozmowaPage() {
   const [interruptMs, setInterruptMs] = useState<number[]>([]);
   const [showMetrics, setShowMetrics] = useState(false);
   const [toolNote, setToolNote] = useState<string | null>(null);
+  const [take, setTake] = useState<Take | null>(null);
+  const recorder = useRef<TakeRecorder | null>(null);
+  if (!recorder.current && typeof window !== 'undefined') recorder.current = new TakeRecorder(setTake);
   const { data: day } = useLive(() => Api.today(), ['approval.requested', 'approval.decided', 'plan.updated']);
 
   const live = state === 'connecting' || state === 'listening' || state === 'speaking' || state === 'disconnected';
@@ -48,6 +53,16 @@ export default function RozmowaPage() {
       onError: setError,
       onSession: setSession,
       onTool: (call, status) => setToolNote(`${TOOL_LABEL[call.name] ?? call.name} · ${STATUS_LABEL[status] ?? status}`),
+      onRecord: (e: RecordEntry) => {
+        const r = recorder.current;
+        if (!r) return;
+        if (e.type === 'connection_lost') r.connectionLost(e.text ?? 'network');
+        else if (e.type === 'connection_restored') r.connectionRestored();
+        else if (e.type === 'tool') {
+          const [name, status] = (e.text ?? '').split(' · ');
+          void r.log('tool', 'assistant', `${TOOL_LABEL[name] ?? name} · ${STATUS_LABEL[status] ?? status}`, e.payload);
+        } else void r.log(e.type, e.speaker, e.text, e.payload);
+      },
     });
     voice.current = v;
     await v.start();
@@ -61,6 +76,7 @@ export default function RozmowaPage() {
   const reconnect = useCallback(async () => {
     await voice.current?.end('network');
     await start();
+    recorder.current?.connectionRestored();
   }, [start]);
 
   const toggleMute = useCallback(() => {
@@ -68,6 +84,16 @@ export default function RozmowaPage() {
       voice.current?.setMuted(!m);
       return !m;
     });
+  }, []);
+
+  useEffect(() => {
+    void recorder.current?.restore();
+  }, []);
+
+  const privacy = useCallback(() => {
+    recorder.current?.privacy();
+    voice.current?.setMuted(true);
+    setMuted(true);
   }, []);
 
   // Release the microphone if the page goes away mid-session.
@@ -111,11 +137,20 @@ export default function RozmowaPage() {
       {day?.approvals.map((a) => (
         <div key={a.id} style={{ marginTop: 12 }}>
           <ApprovalCard approval={a} tasks={day.tasks} timeZone={day.timeZone}
-                        onDecided={(outcome, ap) => voice.current?.notify(decisionNote(outcome, ap))} />
+                        onDecided={(outcome, ap) => {
+                          const note = decisionNote(outcome, ap);
+                          void recorder.current?.log('decision', 'creator', note, { approvalId: ap.id, outcome });
+                          voice.current?.notify(note);
+                        }} />
         </div>
       ))}
 
       {error && <p className="error" role="alert">{error}</p>}
+
+      {recorder.current && (
+        <RecordPanel take={take} recorder={recorder.current} sessionId={session?.sessionId ?? null} onPrivacy={privacy}
+                     onError={setError} />
+      )}
 
       <div style={{ marginTop: 'auto', paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {!live && (
@@ -163,6 +198,108 @@ const TOOL_LABEL: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   ok: 'gotowe', pending_approval: 'czeka na Twoją zgodę', skipped: 'pominięte', error: 'błąd',
 };
+
+/** Take controls (spec p.7): REC, "Do montażu +", pause, privacy. */
+function RecordPanel({ take, recorder, sessionId, onPrivacy, onError }: {
+  take: Take | null; recorder: TakeRecorder; sessionId: string | null; onPrivacy: () => void; onError: (m: string) => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const [info, setInfo] = useState(false);
+  const [lastMarker, setLastMarker] = useState<TakeEvent | null>(null);
+  const [describing, setDescribing] = useState(false);
+  const [note, setNote] = useState('');
+  const [flash, setFlash] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!take) return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [take]);
+
+  useEffect(() => {
+    if (!lastMarker || describing) return;
+    const t = setTimeout(() => setLastMarker(null), 10000);
+    return () => clearTimeout(t);
+  }, [lastMarker, describing]);
+
+  const startTake = async () => {
+    try {
+      await recorder.start(undefined, sessionId);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Nie udało się rozpocząć ujęcia');
+    }
+  };
+
+  const mark = async () => {
+    const at = take ? offsetLabel(Math.max(0, Date.now() - Date.parse(take.startedAt))) : '';
+    setFlash(`Znacznik ${at}`);
+    setTimeout(() => setFlash(null), 1500);
+    const e = await recorder.marker();
+    if (e) setLastMarker(e);
+  };
+
+  const saveNote = () => {
+    if (lastMarker && note.trim()) recorder.describe(lastMarker, note.trim());
+    setDescribing(false);
+    setNote('');
+    setLastMarker(null);
+  };
+
+  if (!take) {
+    return (
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="row" style={{ alignItems: 'center' }}>
+          <button className="btn" onClick={startTake} style={{ flex: 2 }}>
+            <span style={{ color: 'var(--rec)' }}>●</span> Zapisuj ujęcie
+          </button>
+          <button className="btn btn-sm" style={{ flex: 0, minWidth: 44 }} onClick={() => setInfo((i) => !i)} aria-label="Co jest zapisywane">ⓘ</button>
+        </div>
+        {info && (
+          <p className="hint" style={{ marginBottom: 0 }}>
+            Zapisuje się: transkrypcja obu stron, wejścia w słowo, decyzje z kart, użyte narzędzia, znaczniki „Do montażu”
+            i przerwy w sieci, każde z czasem od punktu zerowego ujęcia. Dźwięk nie jest zapisywany. Podczas pauzy nic
+            nie trafia do zapisu. Wpisy oznaczone jako prywatne nie trafiają do eksportu. Transkrypty są usuwane po 30 dniach.
+          </p>
+        )}
+        <p className="hint" style={{ marginBottom: 0 }}><Link href="/ujecia/" style={{ color: 'var(--cyan)' }}>Oś ujęć i eksport →</Link></p>
+      </div>
+    );
+  }
+
+  const paused = take.status === 'paused';
+  const elapsed = Math.max(0, now - Date.parse(take.startedAt));
+  return (
+    <div className="card" style={{ marginTop: 12, borderColor: paused ? 'var(--warn)' : 'var(--rec)' }} data-testid="rec-panel">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontWeight: 700, color: paused ? 'var(--warn)' : 'var(--rec)', fontVariantNumeric: 'tabular-nums' }}>
+          {paused ? '❚❚ PAUZA' : '● REC'} {offsetLabel(elapsed).slice(0, 5)}
+        </span>
+        <span className="hint">Ujęcie {take.number}{flash ? ` · ${flash}` : ''}</span>
+      </div>
+      <button className="btn btn-primary" style={{ width: '100%', minHeight: 64, fontSize: 18 }} onClick={mark} disabled={paused}>
+        Do montażu +
+      </button>
+      {lastMarker && !describing && (
+        <button className="btn btn-sm" style={{ width: '100%', marginTop: 8 }} onClick={() => setDescribing(true)}>✎ Opisz ostatni znacznik</button>
+      )}
+      {describing && (
+        <div className="row" style={{ marginTop: 8 }}>
+          <input autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="np. dobra reakcja na odmowę"
+                 onKeyDown={(e) => e.key === 'Enter' && saveNote()} style={{ flex: 3 }} />
+          <button className="btn btn-sm" onClick={saveNote}>Zapisz</button>
+        </div>
+      )}
+      <div className="row" style={{ marginTop: 8 }}>
+        {paused
+          ? <button className="btn btn-sm btn-on" onClick={() => recorder.resume()}>▶ Wznów zapis</button>
+          : <button className="btn btn-sm" onClick={() => recorder.pause()}>❚❚ Pauza zapisu</button>}
+        <button className="btn btn-sm" onClick={onPrivacy} disabled={paused}>🔒 Prywatność</button>
+      </div>
+      <button className="btn btn-sm btn-danger" style={{ width: '100%', marginTop: 8 }} onClick={() => recorder.stop()}>■ Koniec ujęcia</button>
+      {paused && <p className="hint" style={{ marginBottom: 0 }}>Rozmowa może trwać, ale nic nie trafia do zapisu.</p>}
+    </div>
+  );
+}
 
 function Metrics({ replyMs, interruptMs, transcript, sessionId }: {
   replyMs: number[]; interruptMs: number[]; transcript: TranscriptEntry[]; sessionId?: string;

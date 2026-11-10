@@ -158,6 +158,21 @@ export interface ExperimentConfig {
   dayStart: string; baselineRating?: number; baselineActivities?: number; baselineNote?: string;
 }
 
+export interface Take {
+  id: string; sessionId: string | null; date: string; label: string | null; number: number;
+  status: 'recording' | 'paused' | 'closed'; startedAt: string; endedAt: string | null;
+}
+export type TakeEventType = 'sync' | 'utterance' | 'interruption' | 'decision' | 'tool' | 'marker' | 'gap' | 'pause' | 'resume'
+  | 'connection_lost' | 'connection_restored' | 'privacy' | 'stop';
+export interface TakeEvent {
+  id: string; takeId: string; seq: number; type: TakeEventType; speaker: string | null; text: string | null;
+  occurredAt: string; offsetMs: number; isPrivate: boolean; payload: Record<string, any>;
+}
+export interface TakeEventInput {
+  clientEventId: string; type: TakeEventType; speaker?: string | null; text?: string | null; occurredAtMs: number;
+  payload?: Record<string, unknown>;
+}
+
 export interface ToolOutcome { callId: string; name: string; status: string; output: Record<string, unknown>; replayed: boolean }
 
 export const Api = {
@@ -205,6 +220,15 @@ export const Api = {
   expense: (amountPln: number, description: string, key: string, taskId?: string) =>
     api('/api/experiments/current/expenses', { method: 'POST', body: { amountPln, description, key, taskId } }),
   report: (id: string) => api<Report>(`/api/experiments/${id}/report`),
+
+  startTake: (label?: string, sessionId?: string | null) => api<Take>('/api/takes', { method: 'POST', body: { label, sessionId } }),
+  openTake: () => api<Take | undefined>('/api/takes/open'),
+  takeAction: (id: string, action: 'pause' | 'privacy' | 'resume' | 'stop') => api<Take>(`/api/takes/${id}/${action}`, { method: 'POST' }),
+  takeEvent: (id: string, e: TakeEventInput) => api<TakeEvent>(`/api/takes/${id}/events`, { method: 'POST', body: e }),
+  editTakeEvent: (id: string, eventId: string, patch: { text?: string; isPrivate?: boolean }) =>
+    api<TakeEvent>(`/api/takes/${id}/events/${eventId}`, { method: 'PATCH', body: patch }),
+  takes: (date: string) => api<Take[]>(`/api/takes?date=${date}`),
+  take: (id: string) => api<{ take: Take; events: TakeEvent[] }>(`/api/takes/${id}`),
 
   memories: (status?: string) => api<Memory[]>(`/api/memories${status ? `?status=${status}` : ''}`),
   addMemory: (content: string) => api<Memory>('/api/memories', { method: 'POST', body: { content } }),

@@ -135,3 +135,5 @@ textarea { min-height: 220px; resize: vertical; }
 .tabs button[aria-pressed='true'] { border-color: var(--cyan); color: var(--cyan); }
 .btn-sm { min-height: 40px; font-size: 14px; padding: 0 12px; }
 .section-title { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 18px 0 4px; }
+.linkish { all: unset; cursor: pointer; color: var(--cyan); font-size: 13px; }
+.linkish:disabled { opacity: 0.45; }
