@@ -6,3 +6,4 @@
 .env.*
 server/target/
 server/src/main/resources/static/
+!.env.example
