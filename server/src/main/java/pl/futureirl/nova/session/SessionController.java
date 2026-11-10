@@ -61,6 +61,11 @@ public class SessionController {
         return new SessionDetail(service.require(user.id(), id), service.messages(user.id(), id), service.events(user.id(), id));
     }
 
+    @GetMapping("/{id}/instructions")
+    Map<String, String> instructions(@AuthenticationPrincipal NovaUser user, @PathVariable UUID id) {
+        return Map.of("instructions", service.instructions(user.id(), id));
+    }
+
     @GetMapping("/{id}/metrics")
     LatencyReport metrics(@AuthenticationPrincipal NovaUser user, @PathVariable UUID id) {
         return service.metrics(user.id(), id);

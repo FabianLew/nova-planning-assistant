@@ -72,6 +72,16 @@ describe('TurnTracker', () => {
   });
 });
 
+describe('function calls', () => {
+  it('are emitted from a completed response only', () => {
+    const t = new TurnTracker(650);
+    const fc = { id: 'f1', type: 'function_call', call_id: 'call_1', name: 'create_task', arguments: '{"title":"Spacer"}' };
+    expect(t.handle({ type: 'response.done', response: { id: 'r1', status: 'completed', output: [fc] } }, 0))
+      .toEqual([{ kind: 'toolCalls', calls: [{ callId: 'call_1', name: 'create_task', arguments: '{"title":"Spacer"}' }] }]);
+    expect(t.handle({ type: 'response.done', response: { id: 'r2', status: 'cancelled', output: [fc] } }, 0)).toEqual([]);
+  });
+});
+
 describe('percentile', () => {
   it('uses nearest rank', () => {
     const v = Array.from({ length: 20 }, (_, i) => (i + 1) * 100);

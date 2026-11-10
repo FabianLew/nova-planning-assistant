@@ -12,7 +12,7 @@ public interface RealtimeProvider {
     ClientSecret createClientSecret(SessionSpec spec);
 
     record SessionSpec(String instructions, String voice, String turnDetection, int vadSilenceMs, String vadEagerness,
-                       int ttlSeconds) {}
+                       int ttlSeconds, java.util.List<java.util.Map<String, Object>> tools) {}
 
     /** {@code rtcUrl} is where the browser posts its SDP offer, authorised with {@code value}. */
     record ClientSecret(String value, Instant expiresAt, String rtcUrl) {}

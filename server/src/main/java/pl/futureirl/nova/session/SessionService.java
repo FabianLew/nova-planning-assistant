@@ -14,6 +14,7 @@ import pl.futureirl.nova.config.NovaProperties;
 import pl.futureirl.nova.profile.ProfileRepository;
 import pl.futureirl.nova.realtime.RealtimeProvider;
 import pl.futureirl.nova.security.UserRepository;
+import pl.futureirl.nova.tools.ToolDefinitions;
 import pl.futureirl.nova.session.SessionRepository.EventRow;
 import pl.futureirl.nova.session.SessionRepository.MessageRow;
 import pl.futureirl.nova.session.SessionRepository.SessionRow;
@@ -54,9 +55,9 @@ public class SessionService {
         var id = UUID.randomUUID();
         sessions.insert(id, ownerId, provider.name(), provider.model(), profile.voice());
         try {
-            var spec = new RealtimeProvider.SessionSpec(instructions.build(profile, users.timeZone(ownerId)),
+            var spec = new RealtimeProvider.SessionSpec(instructions.build(ownerId, profile, users.timeZone(ownerId)),
                     profile.voice(), profile.turnDetection(), profile.vadSilenceMs(), profile.vadEagerness(),
-                    CLIENT_SECRET_TTL_SECONDS);
+                    CLIENT_SECRET_TTL_SECONDS, ToolDefinitions.ALL);
             var secret = provider.createClientSecret(spec);
             return new StartedSession(id, secret.value(), secret.expiresAt(), secret.rtcUrl(), provider.model(),
                     profile.voice(), profile.displayName(), profile.turnDetection(), profile.vadSilenceMs(),
@@ -65,6 +66,12 @@ public class SessionService {
             sessions.markFailed(id, e instanceof ApiException a ? a.code() : "provider_error");
             throw e;
         }
+    }
+
+    /** Fresh instruction for a live session after memory or plan changed (client sends it as session.update). */
+    public String instructions(UUID ownerId, UUID sessionId) {
+        require(ownerId, sessionId);
+        return instructions.build(ownerId, profiles.get(ownerId), users.timeZone(ownerId));
     }
 
     public SessionRow connected(UUID ownerId, UUID sessionId, String providerCallId) {
