@@ -12,7 +12,8 @@ public final class PlanModels {
     public record Plan(UUID id, LocalDate date, int version, String status) {}
 
     public record Task(UUID id, UUID planId, UUID proposalId, String title, Instant startAt, int durationMin,
-                       long costGrosze, String reason, String status, String refusalReason, String source) {
+                       long costGrosze, String reason, String status, String refusalReason, String source,
+                       Integer actualMin) {
         public Instant endAt() {
             return startAt == null ? null : startAt.plusSeconds(durationMin * 60L);
         }

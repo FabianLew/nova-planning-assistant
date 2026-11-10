@@ -29,6 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import pl.futureirl.nova.common.ApiException;
 import pl.futureirl.nova.common.UserTime;
 import pl.futureirl.nova.events.EventLog;
+import pl.futureirl.nova.experiment.ExperimentService;
 import pl.futureirl.nova.memory.MemoryService;
 import pl.futureirl.nova.plan.PlanService;
 import pl.futureirl.nova.session.SessionRepository;
@@ -53,9 +54,12 @@ public class ToolService {
     private final MemoryService memory;
     private final UserTime time;
     private final EventLog events;
+    private final ExperimentService experiment;
 
     public ToolService(JdbcClient db, ObjectMapper json, Validator validator, TransactionTemplate tx,
-                       SessionRepository sessions, PlanService plans, MemoryService memory, UserTime time, EventLog events) {
+                       SessionRepository sessions, PlanService plans, MemoryService memory, UserTime time, EventLog events,
+                       ExperimentService experiment) {
+        this.experiment = experiment;
         this.db = db;
         this.json = json;
         this.strict = json.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -87,6 +91,11 @@ public class ToolService {
                     @NotBlank @Size(max = 120) String label) {}
     record SaveMemoryArgs(@NotBlank @Size(max = 500) String content, @NotNull Boolean explicit, @NotNull Boolean sensitive,
                           @Min(1) @Max(5) Integer importance) {}
+    record ActivityArgs(String date, @NotBlank @Size(max = 200) String title, @NotBlank @Pattern(regexp = HHMM) String startTime,
+                        @NotNull @Min(5) @Max(720) Integer durationMin, @NotNull @PositiveOrZero @Max(100000) BigDecimal costPln,
+                        @NotBlank @Size(max = 300) String reason) {}
+    record ExpenseArgs(@NotNull @jakarta.validation.constraints.DecimalMin("0.01") @Max(100000) BigDecimal amountPln,
+                       @NotBlank @Size(max = 200) String description, String taskId) {}
     record SearchArgs(@NotBlank @Size(max = 200) String query) {}
 
     public record ToolOutcome(String callId, String name, String status, Map<String, Object> output, boolean replayed) {}
@@ -111,6 +120,9 @@ public class ToolService {
         } catch (ApiException e) {
             status = "error";
             output = error(e.code(), e.getMessage());
+        } catch (pl.futureirl.nova.common.InsufficientBudgetException e) {
+            status = "error";
+            output = error("insufficient_budget", e.getMessage());
         } catch (IllegalArgumentException | ConstraintViolationException | JsonArgsException e) {
             status = "error";
             output = error("invalid_arguments", e.getMessage());
@@ -181,6 +193,47 @@ public class ToolService {
                         a.importance() == null ? 3 : a.importance(), sessionId, "Rozmowa " + time.today(ownerId));
                 yield Map.of("status", "ok", "memoryId", m.id().toString(), "memoryStatus", m.status(),
                         "note", "pending".equals(m.status()) ? "Zapisane jako wniosek do potwierdzenia przez twórcę." : "Zapamiętane.");
+            }
+            case "get_experiment_status" -> {
+                parse(raw, NoArgs.class);
+                yield experiment.status(ownerId).map(st -> {
+                    var e = st.experiment();
+                    var out = new LinkedHashMap<String, Object>();
+                    out.put("status", "ok");
+                    out.put("experimentStatus", e.status());
+                    out.put("goal", e.goal());
+                    out.put("day", st.dayIndex());
+                    out.put("days", e.days());
+                    out.put("workHours", e.workStart() + "–" + e.workEnd());
+                    out.put("excluded", e.exclusions());
+                    out.put("budgetLimit", ExperimentService.pln(st.budget().limitGrosze()));
+                    out.put("spent", ExperimentService.pln(st.budget().spentGrosze()));
+                    out.put("reserved", ExperimentService.pln(st.budget().reservedGrosze()));
+                    out.put("available", ExperimentService.pln(st.budget().availableGrosze()));
+                    out.put("overLimit", st.budget().overLimit());
+                    out.put("refusals", st.refusals());
+                    out.put("todayDone", st.tasksDone() + "/" + st.tasksTotal());
+                    if (st.yesterdayReview() != null) {
+                        out.put("yesterdayRating", st.yesterdayReview().rating());
+                        out.put("yesterdayComment", st.yesterdayReview().comment());
+                    }
+                    return (Map<String, Object>) out;
+                }).orElse(Map.of("status", "ok", "experimentStatus", "none"));
+            }
+            case "propose_activity" -> {
+                var a = parse(raw, ActivityArgs.class);
+                var cost = a.costPln().multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).longValueExact();
+                yield plans.proposeActivity(ownerId, sessionId, time.parseDate(a.date(), ownerId),
+                        new PlanService.ProposedItem(a.title(), a.startTime(), a.durationMin(), cost, a.reason()));
+            }
+            case "record_expense" -> {
+                var a = parse(raw, ExpenseArgs.class);
+                var amount = a.amountPln().multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).longValueExact();
+                var ex = experiment.recordExpense(ownerId, amount, a.description(), a.taskId() == null ? null : uuid(a.taskId(), "taskId"),
+                        "call:" + sessionId + ":" + callId);
+                var b = experiment.budget(experiment.active(ownerId).orElseThrow());
+                yield Map.of("status", "ok", "expenseId", ex.id().toString(), "available", ExperimentService.pln(b.availableGrosze()),
+                        "overLimit", b.overLimit());
             }
             case "search_memory" -> {
                 var a = parse(raw, SearchArgs.class);

@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 import pl.futureirl.nova.common.UserTime;
+import pl.futureirl.nova.experiment.ExperimentService;
 import pl.futureirl.nova.memory.MemoryService;
 import pl.futureirl.nova.plan.PlanService;
 import pl.futureirl.nova.profile.Profile;
@@ -26,8 +27,10 @@ public class InstructionsBuilder {
     private final Clock clock;
     private final MemoryService memory;
     private final PlanService plans;
+    private final ExperimentService experiment;
 
-    public InstructionsBuilder(Clock clock, MemoryService memory, PlanService plans) {
+    public InstructionsBuilder(Clock clock, MemoryService memory, PlanService plans, ExperimentService experiment) {
+        this.experiment = experiment;
         this.clock = clock;
         this.memory = memory;
         this.plans = plans;
@@ -59,6 +62,29 @@ public class InstructionsBuilder {
                     .map(b -> b.label() + " " + UserTime.hhmm(b.startsAt(), zone) + "–" + UserTime.hhmm(b.endsAt(), zone))
                     .collect(Collectors.joining(", "))).append("\n");
         }
+
+        experiment.status(ownerId).filter(st -> java.util.List.of("active", "paused").contains(st.experiment().status())).ifPresent(st -> {
+            var e = st.experiment();
+            var b = st.budget();
+            sb.append("\n## Eksperyment: ").append(e.goal()).append("\n");
+            sb.append("Dzień ").append(st.dayIndex()).append(" z ").append(e.days())
+              .append("paused".equals(e.status()) ? ". WSTRZYMANY: nie proponuj nowych aktywności." : ".").append("\n");
+            sb.append("Godziny pracy ").append(e.workStart()).append("–").append(e.workEnd()).append(". ");
+            if (!e.exclusions().isEmpty()) sb.append("Wykluczone: ").append(String.join(", ", e.exclusions())).append(". ");
+            sb.append("\nBudżet na aktywności: dostępne ").append(ExperimentService.pln(b.availableGrosze()))
+              .append(" (limit ").append(ExperimentService.pln(b.limitGrosze())).append(", wydano ").append(ExperimentService.pln(b.spentGrosze()))
+              .append(", rezerwy ").append(ExperimentService.pln(b.reservedGrosze())).append(").");
+            if (b.overLimit()) sb.append(" Limit przekroczony: żadnych płatnych propozycji.");
+            sb.append("\nOdmowy w tym tygodniu: ").append(st.refusals()).append(".\n");
+            if (st.yesterdayReview() != null) {
+                sb.append("Wczorajsza ocena dnia: ").append(st.yesterdayReview().rating()).append("/5");
+                if (st.yesterdayReview().comment() != null && !st.yesterdayReview().comment().isBlank()) {
+                    sb.append(", komentarz: „").append(st.yesterdayReview().comment()).append("”");
+                }
+                sb.append(".\n");
+            }
+            sb.append("Rano zaproponuj plan z czasem, kosztem i krótkim uzasadnieniem. Po odmowie zaproponuj alternatywę w granicach reguł.\n");
+        });
 
         var query = day.tasks().stream().map(t -> t.title()).collect(Collectors.joining(" "));
         var facts = memory.search(ownerId, query, MAX_MEMORIES);

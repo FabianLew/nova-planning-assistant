@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import pl.futureirl.nova.common.ApiException;
 import pl.futureirl.nova.common.UserTime;
 import pl.futureirl.nova.events.EventLog;
+import pl.futureirl.nova.experiment.ExperimentService;
 import pl.futureirl.nova.memory.MemoryService;
 import pl.futureirl.nova.plan.PlanModels.Approval;
 import pl.futureirl.nova.plan.PlanModels.DayView;
@@ -37,12 +38,14 @@ public class PlanService {
     private final UserTime time;
     private final EventLog events;
     private final MemoryService memory;
+    private final ExperimentService experiment;
 
-    public PlanService(PlanRepository repo, UserTime time, EventLog events, MemoryService memory) {
+    public PlanService(PlanRepository repo, UserTime time, EventLog events, MemoryService memory, ExperimentService experiment) {
         this.repo = repo;
         this.time = time;
         this.events = events;
         this.memory = memory;
+        this.experiment = experiment;
     }
 
     public record ProposedItem(String title, String startTime, int durationMin, long costGrosze, String reason) {}
@@ -105,6 +108,12 @@ public class PlanService {
     /** done / skipped / refused (reason optional). A refusal is also remembered as an episode (spec p.4). */
     @Transactional
     public Task setStatus(UUID ownerId, UUID taskId, String status, String reason) {
+        return setStatus(ownerId, taskId, status, reason, null);
+    }
+
+    /** {@code actualMin}: real time spent, reported in the evening review (spec p.6). */
+    @Transactional
+    public Task setStatus(UUID ownerId, UUID taskId, String status, String reason, Integer actualMin) {
         if (!List.of("done", "skipped", "refused", "planned").contains(status)) {
             throw new IllegalArgumentException("status must be done, skipped, refused or planned");
         }
@@ -114,6 +123,13 @@ public class PlanService {
         }
         var plan = repo.lock(task.planId(), ownerId).orElseThrow();
         var updated = repo.updateTask(taskId, null, null, null, status, "refused".equals(status) ? reason : null);
+        if (actualMin != null) {
+            if (actualMin < 0 || actualMin > 1440) throw new IllegalArgumentException("actualMin must be 0-1440");
+            updated = repo.setActualMinutes(taskId, actualMin);
+        }
+        if ("skipped".equals(status) || "refused".equals(status)) {
+            experiment.release(ownerId, taskId); // cancelled before purchase: the whole reservation is freed
+        }
         bump(ownerId, plan, null, "task.status", Map.of("taskId", taskId.toString(), "from", task.status(), "to", status));
         if ("refused".equals(status)) {
             var text = "Odmowa: " + task.title() + " (" + plan.date() + ")" + (reason == null || reason.isBlank() ? "" : ", powód: " + reason.strip());
@@ -145,6 +161,8 @@ public class PlanService {
     @Transactional
     public Map<String, Object> proposePlan(UUID ownerId, UUID sessionId, LocalDate date, List<ProposedItem> items) {
         if (items.isEmpty() || items.size() > 12) throw new IllegalArgumentException("plan needs 1 to 12 items");
+        for (var it : items) experiment.checkProposal(ownerId, it.title(), 0);
+        experiment.checkProposal(ownerId, "", items.stream().mapToLong(ProposedItem::costGrosze).sum());
         var zone = time.zone(ownerId);
         var plan = repo.lockOrCreate(ownerId, date);
         for (var old : repo.pendingForPlan(plan.id(), "plan_accept")) {
@@ -213,6 +231,29 @@ public class PlanService {
         return pendingResult(approval, Map.of());
     }
 
+    /** A single paid or free activity: the card approves the plan change and the budget reservation together. */
+    @Transactional
+    public Map<String, Object> proposeActivity(UUID ownerId, UUID sessionId, LocalDate date, ProposedItem item) {
+        experiment.checkProposal(ownerId, item.title(), item.costGrosze());
+        var zone = time.zone(ownerId);
+        var plan = repo.lockOrCreate(ownerId, date);
+        var start = time.at(date, item.startTime(), zone);
+        var conflicts = conflictsFor(ownerId, plan, null, start, item.durationMin(), zone, false);
+        var args = new LinkedHashMap<String, Object>();
+        args.put("date", date.toString());
+        args.put("title", item.title().strip());
+        args.put("startTime", item.startTime());
+        args.put("startAt", start.toString());
+        args.put("durationMin", item.durationMin());
+        args.put("costGrosze", item.costGrosze());
+        args.put("reason", item.reason());
+        var summary = item.title().strip() + " o " + item.startTime() + (item.costGrosze() > 0 ? ", " + pln(item.costGrosze()) : ", bez kosztu");
+        var approval = repo.insertApproval(ownerId, sessionId, "activity", plan.id(), plan.version(), args, summary,
+                conflicts.isEmpty() ? null : String.join("; ", conflicts), time.now().plus(APPROVAL_TTL));
+        events.publish(ownerId, "approval.requested", approvalEvent(approval));
+        return pendingResult(approval, Map.of());
+    }
+
     // ---------------------------------------------------------------- the creator's decision
 
     /**
@@ -249,11 +290,22 @@ public class PlanService {
             var moved = repo.updateTask(taskId, null, Instant.parse((String) approval.args().get("startAt")), null, null, null);
             updated = bump(ownerId, plan, null, "approval:" + approval.id(),
                     Map.of("before", taskJson(task, zone), "after", taskJson(moved, zone)));
+        } else if ("activity".equals(approval.kind())) {
+            var a = approval.args();
+            var cost = ((Number) a.get("costGrosze")).longValue();
+            var task = repo.insertTask(ownerId, plan.id(), approval.id(), (String) a.get("title"), Instant.parse((String) a.get("startAt")),
+                    ((Number) a.get("durationMin")).intValue(), cost, (String) a.get("reason"), "planned", "assistant", null);
+            experiment.reserve(ownerId, task.id(), cost); // rolls the whole decision back if it no longer fits
+            updated = bump(ownerId, plan, null, "approval:" + approval.id(), Map.of("added", taskJson(task, zone)));
         } else {
-            int cancelled = repo.cancelSupersededAssistantTasks(plan.id(), approval.id());
+            var replaced = repo.cancelSupersededAssistantTasks(plan.id(), approval.id());
+            replaced.forEach(id -> experiment.release(ownerId, id));
             int accepted = repo.setProposalTasks(approval.id(), "planned");
+            for (var t : repo.tasks(plan.id())) {
+                if (approval.id().equals(t.proposalId()) && t.costGrosze() > 0) experiment.reserve(ownerId, t.id(), t.costGrosze());
+            }
             updated = bump(ownerId, plan, "approved", "approval:" + approval.id(),
-                    Map.of("accepted", accepted, "replaced", cancelled));
+                    Map.of("accepted", accepted, "replaced", replaced.size()));
         }
         var closed = repo.closeApproval(approval.id(), "approved", decisionKey);
         events.publish(ownerId, "approval.decided", Map.of("approvalId", approval.id().toString(), "outcome", "approved",

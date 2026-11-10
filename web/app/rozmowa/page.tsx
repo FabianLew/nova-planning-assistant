@@ -156,6 +156,9 @@ const TOOL_LABEL: Record<string, string> = {
   add_busy_block: 'Zapisuję zajętość',
   save_memory: 'Zapamiętuję',
   search_memory: 'Szukam w pamięci',
+  get_experiment_status: 'Sprawdzam eksperyment',
+  propose_activity: 'Proponuję aktywność',
+  record_expense: 'Księguję wydatek',
 };
 const STATUS_LABEL: Record<string, string> = {
   ok: 'gotowe', pending_approval: 'czeka na Twoją zgodę', skipped: 'pominięte', error: 'błąd',

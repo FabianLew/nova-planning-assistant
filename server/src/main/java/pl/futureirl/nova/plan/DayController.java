@@ -42,7 +42,7 @@ public class DayController {
                                   @Min(1) @Max(1440) Integer durationMin, int expectedPlanVersion) {}
 
     public record StatusRequest(@NotBlank @Pattern(regexp = "done|skipped|refused|planned") String status,
-                                @Size(max = 300) String reason) {}
+                                @Size(max = 300) String reason, @Min(0) @Max(1440) Integer actualMin) {}
 
     public record BusyRequest(@NotBlank @Pattern(regexp = HHMM) String startTime, @NotBlank @Pattern(regexp = HHMM) String endTime,
                               @NotBlank @Size(max = 120) String label) {}
@@ -84,7 +84,7 @@ public class DayController {
 
     @PostMapping("/tasks/{id}/status")
     PlanModels.Task status(@AuthenticationPrincipal NovaUser user, @PathVariable UUID id, @Valid @RequestBody StatusRequest body) {
-        return plans.setStatus(user.id(), id, body.status(), body.reason());
+        return plans.setStatus(user.id(), id, body.status(), body.reason(), body.actualMin());
     }
 
     @GetMapping("/approvals")

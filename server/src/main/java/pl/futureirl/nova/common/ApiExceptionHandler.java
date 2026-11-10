@@ -20,6 +20,11 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(e.status()).body(Map.of("code", e.code(), "message", e.getMessage()));
     }
 
+    @ExceptionHandler(InsufficientBudgetException.class)
+    ResponseEntity<Map<String, String>> budget(InsufficientBudgetException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("code", "insufficient_budget", "message", e.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<Map<String, String>> invalid(MethodArgumentNotValidException e) {
         var first = e.getBindingResult().getFieldErrors().stream().findFirst()

@@ -22,7 +22,7 @@ class OpenAiRealtimeProviderTest {
     static NovaProperties props(String key) {
         return new NovaProperties(new NovaProperties.Auth("u", "p", "Europe/Warsaw"), List.of(),
                 new NovaProperties.OpenAi(key, "https://api.openai.test", "gpt-realtime", "gpt-4o-transcribe", "marin"),
-                new NovaProperties.Limits(20, 30));
+                new NovaProperties.Limits(20, 30, 100));
     }
 
     static final RealtimeProvider.SessionSpec SPEC =

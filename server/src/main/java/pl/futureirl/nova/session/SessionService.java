@@ -30,9 +30,14 @@ public class SessionService {
     private final RealtimeProvider provider;
     private final InstructionsBuilder instructions;
     private final NovaProperties.Limits limits;
+    private final pl.futureirl.nova.experiment.ExperimentService experiment;
+    private final java.time.Clock clock;
 
     public SessionService(SessionRepository sessions, ProfileRepository profiles, UserRepository users,
-                          RealtimeProvider provider, InstructionsBuilder instructions, NovaProperties props) {
+                          RealtimeProvider provider, InstructionsBuilder instructions, NovaProperties props,
+                          pl.futureirl.nova.experiment.ExperimentService experiment, java.time.Clock clock) {
+        this.experiment = experiment;
+        this.clock = clock;
         this.sessions = sessions;
         this.profiles = profiles;
         this.users = users;
@@ -46,14 +51,15 @@ public class SessionService {
                                  int maxDurationSeconds) {}
 
     public StartedSession start(UUID ownerId) {
-        if (sessions.countStartedSince(ownerId, Instant.now().minus(Duration.ofHours(1))) >= limits.maxStartsPerHour()) {
+        if (sessions.countStartedSince(ownerId, clock.instant().minus(Duration.ofHours(1))) >= limits.maxStartsPerHour()) {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "too_many_sessions",
                     "Session start limit reached for this hour");
         }
+        experiment.checkApiLimit(ownerId);
         var profile = profiles.get(ownerId);
         sessions.endOpen(ownerId, "superseded");
         var id = UUID.randomUUID();
-        sessions.insert(id, ownerId, provider.name(), provider.model(), profile.voice());
+        sessions.insert(id, ownerId, provider.name(), provider.model(), profile.voice(), clock.instant());
         try {
             var spec = new RealtimeProvider.SessionSpec(instructions.build(ownerId, profile, users.timeZone(ownerId)),
                     profile.voice(), profile.turnDetection(), profile.vadSilenceMs(), profile.vadEagerness(),

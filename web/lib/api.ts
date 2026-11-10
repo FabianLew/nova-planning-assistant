@@ -99,7 +99,7 @@ export interface Task {
 
 export interface Approval {
   id: string;
-  kind: 'plan_accept' | 'plan_change';
+  kind: 'plan_accept' | 'plan_change' | 'activity';
   planId: string;
   planVersion: number;
   args: Record<string, any>;
@@ -132,6 +132,30 @@ export interface Memory {
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Experiment {
+  id: string; goal: string; startDate: string; days: number; workStart: string; workEnd: string; exclusions: string[];
+  budgetGrosze: number; apiLimitGrosze: number; dayStart: string; baseline: Record<string, any>; rulesVersion: number;
+  status: 'draft' | 'active' | 'paused' | 'completed' | 'ended_early'; activatedAt: string | null; endedAt: string | null;
+}
+export interface Budget { limitGrosze: number; spentGrosze: number; reservedGrosze: number; availableGrosze: number; overLimit: boolean }
+export interface Review { date: string; rating: number; comment: string | null }
+export interface ApiUsage { minutes: number; estimatedGrosze: number; limitGrosze: number; overLimit: boolean }
+export interface ExperimentStatus {
+  experiment: Experiment; dayIndex: number; experimentDate: string; budget: Budget; api: ApiUsage; refusals: number;
+  tasksDone: number; tasksTotal: number; todayReview: Review | null; yesterdayReview: Review | null;
+}
+export interface DayReport { day: number; date: string; rating: number | null; comment: string | null; planned: number; done: number;
+  skipped: number; refused: number; spentGrosze: number; plannedMinutes: number; actualMinutes: number }
+export interface Report {
+  experiment: Experiment; days: DayReport[]; averageRating: number | null; planned: number; done: number; refused: number; skipped: number;
+  budget: Budget; expenses: { id: string; date: string; amountGrosze: number; description: string }[];
+  refusals: { date: string; title: string; reason: string | null }[]; api: ApiUsage; baseline: Record<string, any>;
+}
+export interface ExperimentConfig {
+  goal: string; startDate: string; workStart: string; workEnd: string; exclusions: string[]; budgetPln: number; apiLimitPln: number;
+  dayStart: string; baselineRating?: number; baselineActivities?: number; baselineNote?: string;
 }
 
 export interface ToolOutcome { callId: string; name: string; status: string; output: Record<string, unknown>; replayed: boolean }
@@ -170,6 +194,17 @@ export const Api = {
   approvals: () => api<Approval[]>('/api/approvals'),
   decide: (id: string, decision: 'approve' | 'reject', key: string) =>
     api<{ outcome: string; approval: Approval }>(`/api/approvals/${id}/decision`, { method: 'POST', body: { decision, key } }),
+
+  experiment: () => api<ExperimentStatus | undefined>('/api/experiments/current'),
+  createExperiment: (c: ExperimentConfig) => api<Experiment>('/api/experiments', { method: 'POST', body: c }),
+  updateExperiment: (id: string, c: ExperimentConfig) => api<Experiment>(`/api/experiments/${id}`, { method: 'PUT', body: c }),
+  transition: (id: string, action: 'activate' | 'pause' | 'resume' | 'end', note?: string) =>
+    api<Experiment>(`/api/experiments/${id}/transition`, { method: 'POST', body: { action, note } }),
+  review: (date: string, rating: number, comment: string) =>
+    api<Review>(`/api/experiments/current/reviews/${date}`, { method: 'PUT', body: { rating, comment } }),
+  expense: (amountPln: number, description: string, key: string, taskId?: string) =>
+    api('/api/experiments/current/expenses', { method: 'POST', body: { amountPln, description, key, taskId } }),
+  report: (id: string) => api<Report>(`/api/experiments/${id}/report`),
 
   memories: (status?: string) => api<Memory[]>(`/api/memories${status ? `?status=${status}` : ''}`),
   addMemory: (content: string) => api<Memory>('/api/memories', { method: 'POST', body: { content } }),

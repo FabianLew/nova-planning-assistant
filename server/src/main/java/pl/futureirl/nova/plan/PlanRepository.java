@@ -97,18 +97,24 @@ public class PlanRepository {
                 .params(title, ts(startAt), durationMin, status, refusalReason, taskId).query(this::task).single();
     }
 
+    public Task setActualMinutes(UUID taskId, int minutes) {
+        return db.sql("UPDATE tasks SET actual_min = ?, updated_at = now() WHERE id = ? RETURNING *").params(minutes, taskId)
+                .query(this::task).single();
+    }
+
     public int setProposalTasks(UUID proposalId, String status) {
         return db.sql("UPDATE tasks SET status = ?, updated_at = now() WHERE proposal_id = ? AND status = 'proposed'")
                 .params(status, proposalId).update();
     }
 
     /** Accepting a new plan replaces the assistant's earlier, not yet started items; the creator's own tasks stay. */
-    public int cancelSupersededAssistantTasks(UUID planId, UUID keepProposalId) {
+    public List<UUID> cancelSupersededAssistantTasks(UUID planId, UUID keepProposalId) {
         return db.sql("""
                 UPDATE tasks SET status = 'cancelled', updated_at = now()
                 WHERE plan_id = ? AND source = 'assistant' AND status = 'planned'
                   AND (proposal_id IS NULL OR proposal_id <> ?)
-                """).params(planId, keepProposalId).update();
+                RETURNING id
+                """).params(planId, keepProposalId).query(UUID.class).list();
     }
 
     // ---- busy blocks
@@ -189,7 +195,7 @@ public class PlanRepository {
         return new Task(rs.getObject("id", UUID.class), rs.getObject("plan_id", UUID.class),
                 rs.getObject("proposal_id", UUID.class), rs.getString("title"), instant(rs, "start_at"),
                 rs.getInt("duration_min"), rs.getLong("cost_grosze"), rs.getString("reason"), rs.getString("status"),
-                rs.getString("refusal_reason"), rs.getString("source"));
+                rs.getString("refusal_reason"), rs.getString("source"), (Integer) rs.getObject("actual_min"));
     }
 
     private BusyBlock busy(ResultSet rs, int i) throws SQLException {

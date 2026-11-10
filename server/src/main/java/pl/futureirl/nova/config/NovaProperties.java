@@ -14,7 +14,7 @@ public record NovaProperties(Auth auth, List<String> allowedOrigins, OpenAi open
         }
     }
 
-    public record Limits(int maxSessionMinutes, int maxStartsPerHour) {}
+    public record Limits(int maxSessionMinutes, int maxStartsPerHour, long apiCostPerMinuteGrosze) {}
 
     public NovaProperties {
         allowedOrigins = allowedOrigins == null ? List.of() : allowedOrigins;

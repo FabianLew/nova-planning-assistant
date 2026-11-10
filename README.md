@@ -50,6 +50,13 @@ Model woła funkcje, telefon przekazuje je do `POST /api/sessions/{id}/tool-call
 - Pamięć: jawne fakty są potwierdzone, wnioski czekają na ocenę, informacje wrażliwe nie są zapisywane. Nowa sesja dostaje maks. 5 potwierdzonych wpisów. Edycja podbija wersję, usunięcie kasuje treść (audyt zostaje bez treści).
 - SSE `GET /api/events/stream` (wznowienie od `Last-Event-ID`): karty zgody, zmiany planu i pamięci. Przy zmianie pamięci lub planu trwająca rozmowa dostaje odświeżoną instrukcję.
 
+## Eksperyment 7-dniowy (M4)
+
+- Konfiguracja w ekranie Eksperyment: cel, start, godziny pracy, wykluczenia, budżet, limit API, początek doby, punkt odniesienia. Reguły zmienia się tylko w szkicu (każda edycja to nowa wersja). Start, pauza, wznowienie i wcześniejsze zakończenie zapisują decyzję z datą.
+- Budżet: `dostępne = limit − wydatki − otwarte rezerwy`, rezerwa sprawdzana pod blokadą wiersza eksperymentu. Zatwierdzenie płatnej aktywności tworzy rezerwę, rachunek (`record_expense` z `taskId`) zamienia ją w wydatek, anulowanie przed zakupem ją zwalnia. Wydatek ponad limit zostaje w dzienniku i blokuje płatne propozycje. Pauza blokuje nowe propozycje.
+- Funkcje modelu: `get_experiment_status`, `propose_activity`, `record_expense`. Kontekst sesji zawiera dzień eksperymentu, budżet i wczorajszą ocenę.
+- Raport `GET /api/experiments/{id}/report`: oceny, wykonane i zaplanowane zadania, odmowy, wydatki, minuty i szacowany koszt API (osobno od budżetu, `NOVA_API_COST_PER_MINUTE_GROSZE`).
+
 ## Test M1 na iPhonie
 
 1. Otwórz aplikację w Safari, „Udostępnij → Do ekranu początkowego”.

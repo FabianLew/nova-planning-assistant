@@ -37,7 +37,8 @@ export function ApprovalCard({ approval, tasks = [], timeZone, onDecided }: {
       setResult(OUTCOME[r.outcome] ?? r.outcome);
       onDecided?.(r.outcome, approval);
     } catch (e) {
-      setResult(e instanceof ApiError && e.code === 'already_decided' ? 'Ta karta została już rozstrzygnięta.' : (e as Error).message);
+      setResult(e instanceof ApiError && e.code === 'already_decided' ? 'Ta karta została już rozstrzygnięta.'
+        : e instanceof ApiError && e.code === 'insufficient_budget' ? `Nie zmieściło się w budżecie. ${e.message}` : (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -45,14 +46,24 @@ export function ApprovalCard({ approval, tasks = [], timeZone, onDecided }: {
 
   const proposed = tasks.filter((t) => t.proposalId === approval.id);
   const isChange = approval.kind === 'plan_change';
+  const isActivity = approval.kind === 'activity';
+  const activityCost = isActivity ? Number(approval.args.costGrosze ?? 0) : 0;
   const total = proposed.reduce((s, t) => s + t.costGrosze, 0);
 
   return (
     <div className="card approval" role="group" aria-label="Karta zgody">
-      <div className="label">{approval.conflict && isChange ? 'Konflikt w planie' : isChange ? 'Zmiana planu' : 'Propozycja planu'}</div>
-      <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 4 }}>
-        {isChange ? `Przenieść „${approval.args.title}”?` : approval.summary}
+      <div className="label">
+        {approval.conflict && isChange ? 'Konflikt w planie' : isChange ? 'Zmiana planu' : isActivity ? (activityCost > 0 ? 'Płatna aktywność' : 'Aktywność') : 'Propozycja planu'}
       </div>
+      <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 4 }}>
+        {isChange ? `Przenieść „${approval.args.title}”?` : isActivity ? `${approval.args.title} o ${approval.args.startTime}?` : approval.summary}
+      </div>
+      {isActivity && (
+        <div>
+          {approval.args.durationMin} min · {activityCost > 0 ? <>koszt <b>{pln(activityCost)}</b> (rezerwa z budżetu, kupujesz Ty)</> : 'bez kosztu'}
+          {approval.args.reason && <div className="hint">{approval.args.reason}</div>}
+        </div>
+      )}
       {isChange && <div style={{ fontSize: 17 }}>{approval.args.from ?? 'bez godziny'} → {approval.args.to}</div>}
       {proposed.length > 0 && (
         <ul style={{ margin: '8px 0', paddingLeft: 18 }}>
@@ -72,7 +83,7 @@ export function ApprovalCard({ approval, tasks = [], timeZone, onDecided }: {
         <>
           <div className="row" style={{ marginTop: 12 }}>
             <button className="btn btn-primary" disabled={busy || left <= 0} onClick={() => decide('approve')}>
-              {isChange ? `Przenieś na ${approval.args.to}` : 'Zatwierdź plan'}
+              {isChange ? `Przenieś na ${approval.args.to}` : isActivity ? (activityCost > 0 ? `Zatwierdź i zarezerwuj ${pln(activityCost)}` : 'Zatwierdź') : 'Zatwierdź plan'}
             </button>
             <button className="btn" disabled={busy} onClick={() => decide('reject')}>
               {isChange ? 'Odrzuć' : 'Odeślij do poprawy'}
@@ -93,7 +104,9 @@ function msLeft(iso: string) {
 
 /** Text the voice session passes to the model after a decision. */
 export function decisionNote(outcome: string, a: Approval): string {
-  const what = a.kind === 'plan_change' ? `przeniesienie „${a.args.title}” na ${a.args.to}` : `plan (${a.summary})`;
+  const what = a.kind === 'plan_change' ? `przeniesienie „${a.args.title}” na ${a.args.to}`
+    : a.kind === 'activity' ? `aktywność „${a.args.title}” o ${a.args.startTime}${a.args.costGrosze > 0 ? ' z rezerwą budżetu' : ''}`
+    : `plan (${a.summary})`;
   switch (outcome) {
     case 'approved': return `Twórca zatwierdził na ekranie: ${what}. Zmiana jest zapisana.`;
     case 'rejected': return `Twórca odrzucił na ekranie: ${what}. Nic się nie zmieniło.`;
