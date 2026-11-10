@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: nova-server
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/nova}
+    username: ${DATABASE_USER:nova}
+    password: ${DATABASE_PASSWORD:nova}
+  flyway:
+    enabled: true
+  session:
+    jdbc:
+      initialize-schema: never
+    timeout: 30d
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        name: NOVA_SESSION
+        http-only: true
+        secure: ${NOVA_COOKIE_SECURE:true}
+        same-site: lax
+        max-age: 30d
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+nova:
+  auth:
+    # Single creator account, created or updated on startup.
+    username: ${NOVA_USERNAME:fabian}
+    password: ${NOVA_PASSWORD:}
+    time-zone: ${NOVA_TIME_ZONE:Europe/Warsaw}
+  # Origins allowed to call state-changing endpoints (CSRF + Origin check). Same-origin is always allowed.
+  allowed-origins: ${NOVA_ALLOWED_ORIGINS:http://localhost:3000}
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+    model: ${OPENAI_REALTIME_MODEL:gpt-realtime}
+    transcription-model: ${OPENAI_TRANSCRIPTION_MODEL:gpt-4o-transcribe}
+    default-voice: ${OPENAI_VOICE:marin}
+  limits:
+    max-session-minutes: ${NOVA_MAX_SESSION_MINUTES:20}
+    max-starts-per-hour: ${NOVA_MAX_STARTS_PER_HOUR:30}
