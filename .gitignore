@@ -1,0 +1,9 @@
+.DS_Store
+.idea/
+*.iml
+.vscode/
+.env
+.env.*
+server/target/
+server/src/main/resources/static/
+!.env.example

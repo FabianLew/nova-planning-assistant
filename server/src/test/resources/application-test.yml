@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: ${TEST_DATABASE_URL:jdbc:postgresql://localhost:5432/nova_test}
+    username: ${TEST_DATABASE_USER:nova}
+    password: ${TEST_DATABASE_PASSWORD:nova}
+  flyway:
+    clean-disabled: false
+nova:
+  auth:
+    username: fabian
+    password: test-password-123
+  openai:
+    api-key: sk-test
+  limits:
+    max-starts-per-hour: 5
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false

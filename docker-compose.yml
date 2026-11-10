@@ -1,0 +1,14 @@
+# Local development database. Run: docker compose up -d
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: nova
+      POSTGRES_USER: nova
+      POSTGRES_PASSWORD: nova
+    ports:
+      - "5432:5432"
+    volumes:
+      - nova-db:/var/lib/postgresql/data
+volumes:
+  nova-db:
