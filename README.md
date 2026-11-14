@@ -57,6 +57,22 @@ Model woła funkcje, telefon przekazuje je do `POST /api/sessions/{id}/tool-call
 - Funkcje modelu: `get_experiment_status`, `propose_activity`, `record_expense`. Kontekst sesji zawiera dzień eksperymentu, budżet i wczorajszą ocenę.
 - Raport `GET /api/experiments/{id}/report`: oceny, wykonane i zaplanowane zadania, odmowy, wydatki, minuty i szacowany koszt API (osobno od budżetu, `NOVA_API_COST_PER_MINUTE_GROSZE`).
 
+## Tryb nagrania i eksport (M5)
+
+- Rozmowa → „Zapisuj ujęcie” otwiera ujęcie z własnym punktem zerowym (zdarzenie `sync`, klaśnij przy starcie). Ujęcie jest niezależne od sesji głosowej; nowe ujęcie zamyka poprzednie.
+- Do ujęcia trafiają: wypowiedzi obu stron, wejścia w słowo, wyniki narzędzi, decyzje z kart, znaczniki „Do montażu +” (drugi przycisk dodaje opis), utrata i powrót sieci z długością przerwy. Każde zdarzenie ma czas UTC z telefonu i offset `mm:ss.mmm` od startu ujęcia; po zerwaniu sieci kolejka wysyła je później z pierwotnym czasem, a `clientEventId` chroni przed duplikatami.
+- „Pauza zapisu”: rozmowa może trwać, ale serwer odrzuca zdarzenia (409). „Prywatność” wstrzymuje zapis i wycisza mikrofon. Wpis oznaczony jako prywatny nie trafia do eksportu.
+- Oś ujęć (`/ujecia/`): lista ujęć dnia, edycja opisów znaczników, prywatność wpisów, pobieranie `GET /api/takes/export?date=YYYY-MM-DD&format=csv|json` (CSV z BOM, komórki zabezpieczone przed formułami).
+- Retencja (`RetentionJob`, codziennie 03:17): transkrypty i ujęcia po `NOVA_TRANSCRIPT_RETENTION_DAYS` (30), diagnostyka po `NOVA_DIAGNOSTICS_RETENTION_DAYS` (7).
+
+## Test na planie (M5)
+
+1. Trzy ujęcia; w każdym klaśnij po starcie (zdarzenie `sync`).
+2. W jednym ujęciu „Pauza zapisu”, powiedz coś, wznów: tej wypowiedzi nie ma w zapisie.
+3. W jednym ujęciu włącz tryb samolotowy na kilka sekund: na osi pojawia się utrata sieci, powrót i przerwa.
+4. Pięć znaczników „Do montażu +”, przynajmniej jeden z opisem.
+5. Pobierz CSV i sprawdź, że offsety zgadzają się z klaśnięciem na nagraniu z drugiego telefonu.
+
 ## Test M1 na iPhonie
 
 1. Otwórz aplikację w Safari, „Udostępnij → Do ekranu początkowego”.

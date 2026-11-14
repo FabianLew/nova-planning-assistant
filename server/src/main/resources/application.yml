@@ -33,6 +33,10 @@ management:
         include: health
 
 nova:
+  retention:
+    # Transcripts and take logs; session diagnostics and the live event feed (spec p.8). No audio is stored.
+    transcript-days: ${NOVA_TRANSCRIPT_RETENTION_DAYS:30}
+    diagnostics-days: ${NOVA_DIAGNOSTICS_RETENTION_DAYS:7}
   auth:
     # Single creator account, created or updated on startup.
     username: ${NOVA_USERNAME:fabian}

@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
 import { Api, type ExperimentConfig, type ExperimentStatus, type Report } from '@/lib/api';
@@ -57,7 +58,7 @@ export default function ExperimentPage() {
   return (
     <AppShell>
       <h1>Eksperyment</h1>
-      <p className="subtitle">Tydzień z AI · {statusLabel}</p>
+      <p className="subtitle">Tydzień z AI · {statusLabel} · <Link href="/ujecia/" style={{ color: 'var(--cyan)' }}>Oś ujęć</Link></p>
 
       {e.status === 'draft' ? (
         <div className="card" style={{ marginTop: 12 }}>

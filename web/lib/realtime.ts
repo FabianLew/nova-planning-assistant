@@ -2,7 +2,7 @@
  * Browser side of a NOVA voice session: microphone -> WebRTC -> OpenAI Realtime, remote audio -> <audio>.
  * The server only hands out a short-lived credential and records the transcript and timeline.
  */
-import { Api, type StartedSession } from './api';
+import { Api, type StartedSession, type TakeEventType } from './api';
 import { subscribe } from './events';
 import { Outbox } from './outbox';
 import { TurnTracker, type Effect, type ToolCall, type VoiceState } from './turns';
@@ -24,6 +24,15 @@ export interface VoiceCallbacks {
   onError(message: string): void;
   onSession(session: StartedSession): void;
   onTool?(call: ToolCall, status: string): void;
+  /** Mirror of what happened, for the take log (only written while a take is recording). */
+  onRecord?(entry: RecordEntry): void;
+}
+
+export interface RecordEntry {
+  type: TakeEventType;
+  speaker: 'creator' | 'assistant' | 'system' | null;
+  text: string | null;
+  payload?: Record<string, unknown>;
 }
 
 export class VoiceSession {
@@ -145,6 +154,8 @@ export class VoiceSession {
           break;
         case 'message':
           this.cb.onTranscript({ id: fx.providerItemId, role: fx.role, content: fx.content, interrupted: fx.interrupted, at: Date.now() });
+          this.cb.onRecord?.({ type: 'utterance', speaker: fx.role === 'user' ? 'creator' : 'assistant', text: fx.content,
+            payload: fx.interrupted ? { interrupted: true } : undefined });
           if (id) {
             const m = { role: fx.role, content: fx.content, interrupted: fx.interrupted, providerItemId: fx.providerItemId };
             this.outbox.push(() => Api.message(id, m));
@@ -155,6 +166,8 @@ export class VoiceSession {
           if (id) this.outbox.push(() => Api.event(id, fx.type, fx.payload));
           break;
         case 'event':
+          if (fx.type === 'turn.interrupted') this.cb.onRecord?.({ type: 'interruption', speaker: 'creator', text: 'Twórca wszedł w słowo' });
+          if (fx.type === 'transcript.gap') this.cb.onRecord?.({ type: 'gap', speaker: 'system', text: 'Brak transkrypcji wypowiedzi', payload: fx.payload });
           if (id) this.outbox.push(() => Api.event(id, fx.type, fx.payload));
           break;
         case 'toolCalls':
@@ -182,6 +195,7 @@ export class VoiceSession {
         output = { status: 'error', error: 'unreachable', message: 'Serwer nie odpowiedział. Nic nie zostało zmienione albo stan jest nieznany; sprawdź get_current_context.' };
       }
       this.cb.onTool?.(call, status);
+      this.cb.onRecord?.({ type: 'tool', speaker: 'assistant', text: `${call.name} · ${status}`, payload: { callId: call.callId } });
       this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: call.callId, output: JSON.stringify(output) } });
     }
     this.send({ type: 'response.create' });
@@ -233,6 +247,7 @@ export class VoiceSession {
       this.setState('listening');
       this.mic?.getAudioTracks().forEach((t) => (t.enabled = !this.muted));
       this.logEvent('connection.restored', {});
+      this.cb.onRecord?.({ type: 'connection_restored', speaker: 'system', text: null });
     }
   }
 
@@ -242,6 +257,7 @@ export class VoiceSession {
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = false));
     this.setState('disconnected');
     this.logEvent('connection.lost', { reason });
+    this.cb.onRecord?.({ type: 'connection_lost', speaker: 'system', text: reason });
   }
 
   private onOffline = () => this.markDisconnected('offline');
