@@ -33,8 +33,12 @@ public class SessionRepository {
     public record EventRow(long id, int seq, String type, Map<String, Object> payload, Instant occurredAt) {}
 
     public void insert(UUID id, UUID ownerId, String provider, String model, String voice) {
-        db.sql("INSERT INTO sessions (id, owner_id, provider, model, voice, status) VALUES (?, ?, ?, ?, ?, 'starting')")
-                .params(id, ownerId, provider, model, voice).update();
+        insert(id, ownerId, provider, model, voice, Instant.now());
+    }
+
+    public void insert(UUID id, UUID ownerId, String provider, String model, String voice, Instant startedAt) {
+        db.sql("INSERT INTO sessions (id, owner_id, provider, model, voice, status, started_at) VALUES (?, ?, ?, ?, ?, 'starting', ?)")
+                .params(id, ownerId, provider, model, voice, OffsetDateTime.ofInstant(startedAt, java.time.ZoneOffset.UTC)).update();
     }
 
     public int countStartedSince(UUID ownerId, Instant since) {

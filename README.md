@@ -42,6 +42,21 @@ Patrz `.env.example`. Wymagane: `OPENAI_API_KEY`, `NOVA_PASSWORD` (min. 8 znakó
 | GET | `/api/sessions/{id}/metrics` | p50/p95 względem celów M1 (≤ 2 s, ≤ 400 ms) |
 | POST | `/api/sessions/{id}/end` | Koniec sesji |
 
+## Narzędzia, pamięć i zgody (M2 + M3)
+
+Model woła funkcje, telefon przekazuje je do `POST /api/sessions/{id}/tool-calls`, a Spring Boot sprawdza schemat, właściciela i sesję, wykonuje operację w transakcji i zapisuje wynik pod `callId` (ponowienie zwraca ten sam wynik). Funkcje: `get_current_context`, `get_calendar_events`, `create_task`, `propose_daily_plan`, `update_daily_plan`, `set_task_status`, `add_busy_block`, `save_memory`, `search_memory`.
+
+- Propozycja planu i zmiana godziny tworzą **kartę zgody**. Plan zmienia się wyłącznie po `POST /api/approvals/{id}/decision` z ekranu, dokładnie raz, tylko dla aktualnej wersji planu i przed upływem 15 min.
+- Pamięć: jawne fakty są potwierdzone, wnioski czekają na ocenę, informacje wrażliwe nie są zapisywane. Nowa sesja dostaje maks. 5 potwierdzonych wpisów. Edycja podbija wersję, usunięcie kasuje treść (audyt zostaje bez treści).
+- SSE `GET /api/events/stream` (wznowienie od `Last-Event-ID`): karty zgody, zmiany planu i pamięci. Przy zmianie pamięci lub planu trwająca rozmowa dostaje odświeżoną instrukcję.
+
+## Eksperyment 7-dniowy (M4)
+
+- Konfiguracja w ekranie Eksperyment: cel, start, godziny pracy, wykluczenia, budżet, limit API, początek doby, punkt odniesienia. Reguły zmienia się tylko w szkicu (każda edycja to nowa wersja). Start, pauza, wznowienie i wcześniejsze zakończenie zapisują decyzję z datą.
+- Budżet: `dostępne = limit − wydatki − otwarte rezerwy`, rezerwa sprawdzana pod blokadą wiersza eksperymentu. Zatwierdzenie płatnej aktywności tworzy rezerwę, rachunek (`record_expense` z `taskId`) zamienia ją w wydatek, anulowanie przed zakupem ją zwalnia. Wydatek ponad limit zostaje w dzienniku i blokuje płatne propozycje. Pauza blokuje nowe propozycje.
+- Funkcje modelu: `get_experiment_status`, `propose_activity`, `record_expense`. Kontekst sesji zawiera dzień eksperymentu, budżet i wczorajszą ocenę.
+- Raport `GET /api/experiments/{id}/report`: oceny, wykonane i zaplanowane zadania, odmowy, wydatki, minuty i szacowany koszt API (osobno od budżetu, `NOVA_API_COST_PER_MINUTE_GROSZE`).
+
 ## Test M1 na iPhonie
 
 1. Otwórz aplikację w Safari, „Udostępnij → Do ekranu początkowego”.

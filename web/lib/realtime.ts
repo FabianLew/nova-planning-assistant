@@ -3,8 +3,9 @@
  * The server only hands out a short-lived credential and records the transcript and timeline.
  */
 import { Api, type StartedSession } from './api';
+import { subscribe } from './events';
 import { Outbox } from './outbox';
-import { TurnTracker, type Effect, type VoiceState } from './turns';
+import { TurnTracker, type Effect, type ToolCall, type VoiceState } from './turns';
 
 export interface TranscriptEntry {
   id: string;
@@ -22,6 +23,7 @@ export interface VoiceCallbacks {
   onMetric(type: 'latency.reply' | 'latency.interrupt', payload: Record<string, number>): void;
   onError(message: string): void;
   onSession(session: StartedSession): void;
+  onTool?(call: ToolCall, status: string): void;
 }
 
 export class VoiceSession {
@@ -36,6 +38,8 @@ export class VoiceSession {
   private limitTimer: ReturnType<typeof setTimeout> | null = null;
   private wakeLock: { release(): Promise<void> } | null = null;
   private closed = false;
+  private unsubscribe: (() => void) | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly audio: HTMLAudioElement, private readonly cb: VoiceCallbacks) {}
 
@@ -73,6 +77,11 @@ export class VoiceSession {
       window.addEventListener('offline', this.onOffline);
       window.addEventListener('online', this.onOnline);
       document.addEventListener('visibilitychange', this.onVisibility);
+      // Memory or plan edited elsewhere (Pamięć screen, approval card): refresh the instruction before the
+      // next answer (spec p.4).
+      this.unsubscribe = subscribe((e) => {
+        if (['memory.changed', 'memory.deleted', 'plan.updated', 'busy.changed'].includes(e.type)) this.scheduleRefresh();
+      });
     } catch (e) {
       this.cleanupMedia();
       this.setState('error');
@@ -148,8 +157,57 @@ export class VoiceSession {
         case 'event':
           if (id) this.outbox.push(() => Api.event(id, fx.type, fx.payload));
           break;
+        case 'toolCalls':
+          void this.runTools(fx.calls);
+          break;
       }
     }
+  }
+
+  /**
+   * The phone only relays: the server validates and executes the call, and its output goes back to the model
+   * in the same turn (by call id). Network errors are reported to the model as errors, never as success.
+   */
+  private async runTools(calls: ToolCall[]) {
+    const id = this.session?.sessionId;
+    if (!id) return;
+    for (const call of calls) {
+      let output: unknown;
+      let status = 'error';
+      try {
+        const res = await Api.toolCall(id, call.callId, call.name, call.arguments);
+        output = res.output;
+        status = res.status;
+      } catch (e) {
+        output = { status: 'error', error: 'unreachable', message: 'Serwer nie odpowiedział. Nic nie zostało zmienione albo stan jest nieznany; sprawdź get_current_context.' };
+      }
+      this.cb.onTool?.(call, status);
+      this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: call.callId, output: JSON.stringify(output) } });
+    }
+    this.send({ type: 'response.create' });
+  }
+
+  /** Tells the model what the creator decided on an approval card, then lets it react. */
+  notify(text: string) {
+    if (this.closed || this.state === 'disconnected') return;
+    this.send({ type: 'conversation.item.create', item: { type: 'message', role: 'system', content: [{ type: 'input_text', text }] } });
+    this.send({ type: 'response.create' });
+  }
+
+  private scheduleRefresh() {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = setTimeout(async () => {
+      const id = this.session?.sessionId;
+      if (!id || this.closed) return;
+      try {
+        const { instructions } = await Api.instructions(id);
+        this.send({ type: 'session.update', session: { type: 'realtime', instructions } });
+      } catch { /* next change will retry */ }
+    }, 400);
+  }
+
+  private send(event: Record<string, unknown>) {
+    if (this.dc?.readyState === 'open') this.dc.send(JSON.stringify(event));
   }
 
   setMuted(muted: boolean) {
@@ -207,6 +265,9 @@ export class VoiceSession {
 
   private cleanupMedia() {
     if (this.limitTimer) clearTimeout(this.limitTimer);
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     window.removeEventListener('offline', this.onOffline);
     window.removeEventListener('online', this.onOnline);
     document.removeEventListener('visibilitychange', this.onVisibility);

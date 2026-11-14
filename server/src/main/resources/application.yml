@@ -49,3 +49,5 @@ nova:
   limits:
     max-session-minutes: ${NOVA_MAX_SESSION_MINUTES:20}
     max-starts-per-hour: ${NOVA_MAX_STARTS_PER_HOUR:30}
+    # Rough estimate used only to watch API spend, kept apart from the activity budget.
+    api-cost-per-minute-grosze: ${NOVA_API_COST_PER_MINUTE_GROSZE:100}

@@ -1,7 +1,10 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { ApprovalCard, decisionNote } from '@/components/ApprovalCard';
 import { Orb } from '@/components/Orb';
+import { Api } from '@/lib/api';
+import { useLive } from '@/lib/hooks';
 import type { StartedSession } from '@/lib/api';
 import { VoiceSession, type TranscriptEntry } from '@/lib/realtime';
 import { percentile } from '@/lib/stats';
@@ -20,6 +23,8 @@ export default function RozmowaPage() {
   const [replyMs, setReplyMs] = useState<number[]>([]);
   const [interruptMs, setInterruptMs] = useState<number[]>([]);
   const [showMetrics, setShowMetrics] = useState(false);
+  const [toolNote, setToolNote] = useState<string | null>(null);
+  const { data: day } = useLive(() => Api.today(), ['approval.requested', 'approval.decided', 'plan.updated']);
 
   const live = state === 'connecting' || state === 'listening' || state === 'speaking' || state === 'disconnected';
 
@@ -42,6 +47,7 @@ export default function RozmowaPage() {
       },
       onError: setError,
       onSession: setSession,
+      onTool: (call, status) => setToolNote(`${TOOL_LABEL[call.name] ?? call.name} · ${STATUS_LABEL[status] ?? status}`),
     });
     voice.current = v;
     await v.start();
@@ -100,6 +106,15 @@ export default function RozmowaPage() {
         </div>
       </div>
 
+      {toolNote && live && <p className="hint" style={{ margin: '8px 2px 0' }}>⚙︎ {toolNote}</p>}
+
+      {day?.approvals.map((a) => (
+        <div key={a.id} style={{ marginTop: 12 }}>
+          <ApprovalCard approval={a} tasks={day.tasks} timeZone={day.timeZone}
+                        onDecided={(outcome, ap) => voice.current?.notify(decisionNote(outcome, ap))} />
+        </div>
+      ))}
+
       {error && <p className="error" role="alert">{error}</p>}
 
       <div style={{ marginTop: 'auto', paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -130,6 +145,24 @@ export default function RozmowaPage() {
     </AppShell>
   );
 }
+
+const TOOL_LABEL: Record<string, string> = {
+  get_current_context: 'Sprawdzam dzień',
+  get_calendar_events: 'Sprawdzam kalendarz',
+  create_task: 'Dodaję zadanie',
+  propose_daily_plan: 'Proponuję plan',
+  update_daily_plan: 'Proponuję zmianę',
+  set_task_status: 'Oznaczam zadanie',
+  add_busy_block: 'Zapisuję zajętość',
+  save_memory: 'Zapamiętuję',
+  search_memory: 'Szukam w pamięci',
+  get_experiment_status: 'Sprawdzam eksperyment',
+  propose_activity: 'Proponuję aktywność',
+  record_expense: 'Księguję wydatek',
+};
+const STATUS_LABEL: Record<string, string> = {
+  ok: 'gotowe', pending_approval: 'czeka na Twoją zgodę', skipped: 'pominięte', error: 'błąd',
+};
 
 function Metrics({ replyMs, interruptMs, transcript, sessionId }: {
   replyMs: number[]; interruptMs: number[]; transcript: TranscriptEntry[]; sessionId?: string;
